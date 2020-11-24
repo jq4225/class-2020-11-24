@@ -28,19 +28,53 @@ primary_06 ~ solo + primary_04 + treatment + solo:treatment
 
 (Assume that you have already completed a cross-validation analysis and chosen this one model to use going forward.)
 
+```{r cache = TRUE}
+fit_1 <- stan_glm(primary_06 ~ solo + primary_04 + treatment + solo:treatment,
+                  data = week_11, refresh = 0)
+```
+
+
 * Which data set should you use to fit the model? Explain why.
+
+Full data -- we picked the model already
 
 * Interpret the fitted model. Should we keep all these variables? And the interaction term?
 
-
+We should keep everything and interaction term too! Primary_4 is a pretty  good predictor of whether you'll vote again so that seems worth keeping, everything else seems like it's significant. Solo:treatment is good for telling us whether treatments are more/less effective depending on household size. 
 
 ## Scene 2
 
 **Prompt:** What is the causal effect of receiving the Neighbors postcard as compared to being in the control group? Provide a posterior probability distribution.
 
+```{r}
+neighbor <- tibble(treatment = c("Neighbors", "Control"), solo = FALSE,
+                   primary_04 = "Yes")
+
+pp <- posterior_predict(fit_1, newdata = neighbor) %>%
+  as_tibble()
+
+pp %>%
+  mutate(diff = `1` - `2`) %>%
+  mutate(diff = as.double(diff)) %>%
+  ggplot(aes(x = diff, y = after_stat(count/sum(count)))) + 
+    geom_histogram(bins = 50, color = "white")
+```
+
+
 * One way to answer this question is to use `posterior_predict()`. Do that. Make it look nice! Write a sentence or two interpreting the answer.
 
 * A second approach uses `posterior_epred()`. Do that. Make it look nice! Write a sentence or two interpreting the answer.
+```{r}
+pe <- posterior_epred(fit_1, newdata = neighbor) %>%
+  as_tibble()
+
+pe %>%
+  mutate(diff = `1` - `2`) %>%
+  mutate(diff = as.double(diff)) %>%
+  ggplot(aes(x = diff, y = after_stat(count/sum(count)))) +
+    geom_histogram(color = "white", bins = 50)
+```
+
 
 
 ## Scene 3
@@ -49,6 +83,61 @@ primary_06 ~ solo + primary_04 + treatment + solo:treatment
 
 * Challenge question: Do the same but for both `solo = TRUE` and `solo = FALSE`. This means that there are 8 posterior probability distributions to show. Think hard about the best way to display them. What point are you trying to get across to your readers?
 
+```{r}
+
+newobs <- tibble(treatment = c("Neighbors", "Self", 
+                               "Hawthorne", "Civic Duty", "Control"), 
+                 solo = FALSE,
+                 primary_04 = "Yes")
+
+pe_2 <- posterior_epred(fit_1, newdata = newobs) %>%
+  as_tibble()
+
+pe_2 %>%
+  mutate(neighbor = `1` - `5`,
+         self = `2` - `5`,
+         hawthorne = `3` - `5`,
+         civic_duty = `4` - `5`) %>%
+  pivot_longer(cols = neighbor:civic_duty, names_to = "treatment",
+               values_to = "diff") %>%
+  ggplot(aes(x = diff, fill = treatment)) +
+    geom_histogram(color = "white", position = "identity",
+                   alpha = 0.4, bins = 100)
+```
+
+```{r}
+
+newobs2 <- expand_grid(treatment = levels(week_11$treatment), 
+                       solo = unique(week_11$solo),
+                       primary_04 = c("Yes"))
+
+pe_3 <- posterior_epred(fit_1, newdata = newobs2) %>%
+  as_tibble() %>%
+  mutate_all(as.numeric) %>%
+  mutate(civic_false = `3` - `1`,
+         civic_true = `4` - `2`,
+         hawthorne_false = `5` - `1`,
+         hawthorne_true = `6` - `2`,
+         self_false = `7` - `1`,
+         self_true = `8` - `2`,
+         neighbor_false = `9` - `1`,
+         neighbor_true = `10` - `2`) %>%
+  select(civic_false:neighbor_true)
+
+pe_3 %>%
+  pivot_longer(cols = civic_false:neighbor_true,
+               values_to = "effect",
+               names_to = "treatment") %>%
+  mutate(solo = ifelse(str_detect(treatment, pattern = "false"), 0, 1)) %>%
+  mutate(treatment = ifelse(str_detect(treatment, pattern = "false"),
+                            str_sub(treatment, end = str_length(treatment) - 6),
+                            str_sub(treatment, end = str_length(treatment) - 5))) %>%
+  ggplot(aes(x = effect, 
+             y = after_stat(count / sum(count)), fill = treatment)) +
+    geom_histogram(position = "identity", alpha = 0.5, bins = 100) +
+    facet_wrap(~ solo)
+
+```
 
 
 ## Optional Question
